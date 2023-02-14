@@ -1,6 +1,6 @@
-# -------- Demo of Causal Representation Learning (CRL) ------- #
-#    by Jia Li jiaxx213@umn.edu 
-#    project finished in Aug 2022, published Feb 2023
+ -------- Demo of Causal Representation Learning (CRL) ------- 
+    by Jia Li jiaxx213@umn.edu 
+    project finished in Aug 2022, published Feb 2023
 
 This folder includes all python source code, and some log files.
 Please read the Jupyter Notebook demo_CRL_scripts.ipynb for all introductions to this demo.
