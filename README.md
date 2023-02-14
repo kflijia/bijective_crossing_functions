@@ -8,3 +8,4 @@ Rerunning demo_CRL_scripts.ipynb needs the source data or the intermediate resul
 
 https://drive.google.com/file/d/1yO8JMkCYEf_JbrqPteOefy4W_GZOhTiI/view?usp=sharing
 
+For more details please refer to the original paper: Realization of Causal Representation Learning to Adjust Confounding Bias in Latent Space
