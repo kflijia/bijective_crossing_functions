@@ -31,6 +31,7 @@ verb = dt.verb
 
 Dim_state = 16
 
+#TODO expd
 class Expander(layers.Layer):
     def __init__(self, input_dims, name="expander", **kwargs):
         super(Expander, self).__init__(name=name, **kwargs)
@@ -51,7 +52,8 @@ class Expander(layers.Layer):
         else:
             self.out_x_dim = exp
         self.out_dim = self.out_x_dim + self.c_dim
-        print("[Expander] dims: orig_x="+str(org)+" expand="+str(exp)+" out="+str(self.out_dim)+". ")
+        if verb>=3:
+            print("[Expander] dims: orig_x="+str(org)+" expand="+str(exp)+" out="+str(self.out_dim)+". ")
         return
     def call(self, inputs):
         input_x = inputs[:,:self.orig_x_dim]
@@ -64,11 +66,12 @@ class Expander(layers.Layer):
             return inputs
         # -- need expand --
         expd_output = tf.convert_to_tensor(np.zeros((input_x.shape[0],0)))
+        expd_output = tf.cast(expd_output, dtype=input_x.dtype)
         for d in range(org):
             clone_n = int(self.expd_times_arr[d])
             d_col = input_x[:,d:(d+1)]
             #clone_cols = tf.constant(d_col.numpy())
-            clone_cols = tf.constant(d_col)
+            clone_cols = tf.identity(d_col)
             for i in range(clone_n-1):
                 clone_cols = tf.concat([clone_cols, d_col], axis=1)
             expd_output = tf.concat([expd_output, clone_cols],axis=1)
@@ -93,6 +96,7 @@ class Expander(layers.Layer):
         self.expd_times_arr = in_dict['expd_times_arr']
         return
 
+#TODO shrk
 class Shrinker(layers.Layer):
     def __init__(self, in_expander, name="shrinker", **kwargs):
         super(Shrinker, self).__init__(name=name, **kwargs)
@@ -140,7 +144,7 @@ class Shrinker(layers.Layer):
         return
 
 reg_scale = 1e-10
-
+#TODO encoder
 class Encoder(layers.Layer):
     def __init__(self, auto_dim, name="encoder", **kwargs):
         super(Encoder, self).__init__(name=name, **kwargs)
@@ -190,7 +194,7 @@ class Encoder(layers.Layer):
         in_dict['layers_list'] = self.layers_list
         return in_dict
 
-
+#TODO decoder
 class Decoder(layers.Layer):
     def __init__(self, auto_dim, name="decoder", **kwargs):
         super(Decoder, self).__init__(name=name, **kwargs)
@@ -253,6 +257,7 @@ class Decoder(layers.Layer):
         in_dict['layers_list'] = self.layers_list
         return in_dict
 
+#TODO mask
 class Masker(layers.Layer):
     def __init__(self, mask_dim, name="masker", **kwargs):
         super(Masker, self).__init__(name=name, **kwargs)
@@ -310,6 +315,7 @@ class Masker(layers.Layer):
         in_dict['layers_list'] = self.layers_list
         return in_dict
 
+#TODO bundler
 class Bundler(object):
     def __init__(self, in_set_up):
         super(Bundler, self).__init__()
@@ -325,7 +331,7 @@ class Bundler(object):
     def __call__(self, inputs):
         outputs_list = []    
         for i in range(self.bundle_size):
-            outputs_list.append(self.obj_list[i](inputs[i]))
+            outputs_list.append(self.obj_list[i].call(inputs[i]))
         return outputs_list
     def get_weights(self, in_lists):
         for i in range(self.bundle_size):
@@ -352,6 +358,7 @@ class Bundler(object):
                 obj.enable_train()
         return
 
+#TODO tw_base
 class Tower_Base(layers.Layer):
     def __init__(self, input_dims_bundle, name="tower_base", **kwargs):
         super(Tower_Base, self).__init__(name=name, **kwargs)
@@ -365,7 +372,9 @@ class Tower_Base(layers.Layer):
         b_size = self.bundle_size
         inputs_mat_bundle = []
         for b in range(b_size):
-            inputs_mat = np.concatenate([input_x[b], input_c[b]], axis=1)
+            x_mat = tf.cast(input_x[b], dtype='float32')
+            c_mat = tf.cast(input_c[b], dtype='float32')
+            inputs_mat = tf.concat([x_mat, c_mat], axis=1)
             inputs_mat_bundle.append(inputs_mat)
         inputs = inputs_mat_bundle
         input_x_merge = self.merge_output(input_x)
@@ -389,7 +398,7 @@ class Tower_Base(layers.Layer):
             if "strided_slice" in str(input_x_b[0]): # place holder!
                 expd_x_mask_b = tf.ones_like(expd_x_output_b)
             else:
-                expd_x_mask_b = abs(expd_x_output_b.numpy())>0.005
+                expd_x_mask_b = abs(expd_x_output_b.numpy())> self.mask_th #0.005
             c_cover_b = tf.zeros(shape=[input_x_b.shape[0], c_dim[b]])
             expd_mask_b = tf.concat([expd_x_mask_b, c_cover_b], axis=1)
             expd_mask_b = tf.cast(expd_mask_b, dtype=output_dtype)
@@ -422,6 +431,7 @@ class Tower_Base(layers.Layer):
         self.expander.set_config(expd_confs)
         return
 
+#TODO tw_top
 class Tower_Top(layers.Layer):
     def __init__(self, tower_base, name="tower_top", **kwargs):
         super(Tower_Top, self).__init__(name=name, **kwargs)
@@ -466,7 +476,7 @@ class Tower_Top(layers.Layer):
             # expd_mask
             mask_bi_expd_b = tf.ones_like(mask_expd_b) # default
             if not "strided_slice" in str(in_state[b][0]): # not place holder!
-                mask_bi_expd_b = tf.cast(mask_expd_b.numpy()>=0.5, dtype=output_dtype)
+                mask_bi_expd_b = tf.cast(abs(mask_expd_b)>=self.mask_th, dtype=output_dtype)
             the_mask_b = in_mask[b]
             if len(the_mask_b)==0:
                 the_mask_b = mask_bi_expd_b
@@ -483,7 +493,7 @@ class Tower_Top(layers.Layer):
         # merge mask        
         mask_recv_x = self.shrinker(mask_expd)
         mask_recv_x_merge = self.merge_output(mask_recv_x)
-        mask_bi_recv_x_merge = tf.cast(mask_recv_x_merge.numpy()>=0.5, dtype=output_dtype)
+        mask_bi_recv_x_merge = tf.cast(abs(mask_recv_x_merge)>=self.mask_th, dtype=output_dtype)
         mask_merge_pair = [mask_recv_x_merge, mask_bi_recv_x_merge]
         # output
         shrk_recv_x = self.shrinker(rls_cipher) # recv
@@ -573,7 +583,7 @@ def both_loss_fn(y_true, y_pred):
             rmse_arr = tf.concat([rmse_arr, [rmse_loss_fn(y_true[i], y_pred[i])]], axis=0)
         return mse_arr, rmse_arr
 
-
+#TODO tower
 bicross_std_disc = {"j":0.1, "f":0.01, "i":0.1, "a":0.1, "b":0.1} # "df":0.1, "cde":0.1, "ghi":0.1, 
 stopper_toler_disc = {"j":0.001, "f":0.0002, "h":0.0005, "i":0.001, "a":0.0005, "b":0.0005, "e":0.0005} # "cde":0.001, "ghi":0.001, 
 class Tower(keras.Model):
@@ -583,11 +593,14 @@ class Tower(keras.Model):
             in_keys = [char for char in in_keys]
         self.keys = in_keys
         self.d_obj = in_data_obj
+        self.mask_th = self.d_obj.get_mask_th(self.keys)
         # --- base + top ---
         b_size = len(self.keys)
         in_dims = [self.d_obj.get_dims(k) for k in self.keys]
         self.tw_base = Tower_Base(in_dims)
+        self.tw_base.mask_th = self.mask_th
         self.tw_top = Tower_Top(self.tw_base)
+        self.tw_top.mask_th = self.mask_th
         # --- crosser + releaser ---
         exp_dim_bundle = self.tw_base.expander.config['out_dim']
         batch_size_bundle = [Batch_size for b in range(b_size)]
@@ -653,12 +666,14 @@ class Tower(keras.Model):
             for cr in cp_cr_list:
                 cr.type = "writable" # make writable, in case used in unit
             cp_cross_list.append(cp_cr_list)
+        cp_top.mask_th = self.mask_th
         cp_top.releaser = Bundler([bi.Bireleaser, cp_cross_list])
         x_seed_bundle, c_seed_bundle = self.d_obj.get_seeds_bundle(self.keys, Batch_size)
         base_out = self.call_base(x_seed_bundle, c_seed_bundle)
         expd_output, _, state_output, in_mask_expd, c_patch, _ = base_out
         _ = cp_top(state_output, c_patch, expd_output, in_mask_expd)
         cp_top.decoder.set_weights(self.tw_top.decoder.get_weights([]))
+        cp_top.masker.set_weights(self.tw_top.masker.get_weights([]))
         cp_top.shrinker.set_config(self.tw_top.shrinker.get_config([]))
         if len(tail_str)>0:
             for b in range(len(self.keys)):
@@ -672,9 +687,9 @@ class Tower(keras.Model):
         base_out = self.call_base(input_x, input_c)
         expd_output, extr_output, state_output, in_mask_expd, c_patch, input_x_merge = base_out
         if training:
-            top_out = self.tw_top(state_output, c_patch, expd_output, in_mask_expd)
+            top_out = self.tw_top.call(state_output, c_patch, expd_output, in_mask_expd)
         else:
-            top_out = self.tw_top(state_output, c_patch)
+            top_out = self.tw_top.call(state_output, c_patch)
         decd_output, rls_output, shrk_out_pair, shrk_merge_pair, mask_out_pair, mask_merge_pair = top_out
         x_recv, x_recv_pred = shrk_out_pair
         x_merge, x_merge_pred = shrk_merge_pair
@@ -970,7 +985,7 @@ class Tower(keras.Model):
                     state_mean = np.mean(tw_state)
                     state_clips[0] = min(state_clips[0], state_min)
                     state_clips[1] = max(state_clips[1], state_max)
-                    if step % 100 == 0 and verb >= 3:
+                    if step % 100 == 0 and verb >= 2:
                         # arr_crss = [np.round(loss,3) for loss in [crss_mse, crss_rmse]]
                         # arr_expd = [np.round(loss,3) for loss in [expd_mse, expd_rmse]]
                         arr_recv = [np.round(loss,3) for loss in [recv_mse, recv_rmse]]
