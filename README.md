@@ -1,4 +1,4 @@
- -------- Demo of Causal Representation Learning (CRL) ------- 
+ # -------- Demo of Causal Representation Learning (CRL) ------- 
     by Jia Li jiaxx213@umn.edu 
     project finished in Aug 2022, published Feb 2023
 
